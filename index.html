@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1565c0">
+<link rel="manifest" href="manifest.json">
+<title>数独</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f5f5;
+    --surface: #ffffff;
+    --text: #1a1a1a;
+    --given: #1a1a1a;
+    --input-color: #1565c0;
+    --error-color: #c62828;
+    --selected-bg: #bbdefb;
+    --related-bg: #e3f2fd;
+    --same-num-bg: #c8e6c9;
+    --border: #bdbdbd;
+    --thick-border: #333;
+    --btn-bg: #1565c0;
+    --btn-text: #fff;
+    --memo-color: #e65100;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212; --surface: #1e1e1e; --text: #e0e0e0;
+      --given: #e0e0e0; --input-color: #90caf9; --error-color: #ef9a9a;
+      --selected-bg: #1a3a5c; --related-bg: #152535; --same-num-bg: #1b3a2a;
+      --border: #444; --thick-border: #aaa; --memo-color: #ffb74d;
+    }
+  }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100dvh; padding: 8px 4px; gap: 8px;
+    overflow-x: hidden;
+  }
+
+  h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: .05em; }
+
+  .controls {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap; justify-content: center;
+  }
+  select, button {
+    font-size: 0.85rem; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button.primary { background: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); font-weight: 600; }
+  button.active  { background: #e65100; border-color: #e65100; color: #fff; }
+
+  #timer { font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; }
+
+  .board-wrap { display: flex; justify-content: center; }
+  .board {
+    display: grid; grid-template-rows: repeat(9, 1fr);
+    width: min(96vw, 96svh, 480px); aspect-ratio: 1 / 1;
+    border: 2px solid var(--thick-border); background: var(--surface);
+    user-select: none;
+  }
+  .row { display: grid; grid-template-columns: repeat(9, 1fr); }
+  .row:nth-child(3n) { border-bottom: 2px solid var(--thick-border); }
+
+  .cell {
+    display: flex; align-items: center; justify-content: center;
+    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    font-size: clamp(14px, 3.5vmin, 26px); font-weight: 600;
+    cursor: pointer; position: relative;
+    -webkit-tap-highlight-color: transparent; transition: background 0.1s;
+  }
+  .cell:nth-child(3n) { border-right: 2px solid var(--thick-border); }
+  .cell:last-child    { border-right: none; }
+  .row:last-child .cell { border-bottom: none; }
+
+  .cell.given    { color: var(--given); }
+  .cell.input    { color: var(--input-color); }
+  .cell.error    { color: var(--error-color) !important; }
+  .cell.selected { background: var(--selected-bg) !important; }
+  .cell.related  { background: var(--related-bg); }
+  .cell.same-num { background: var(--same-num-bg); }
+
+  .memo-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    width: 90%; height: 90%; position: absolute; inset: 5%;
+  }
+  .memo-grid span {
+    font-size: clamp(6px, 1.2vmin, 10px); font-weight: 400;
+    color: var(--memo-color); display: flex;
+    align-items: center; justify-content: center; line-height: 1;
+  }
+
+  .numpad { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; width: min(96vw, 480px); }
+  .numpad button {
+    aspect-ratio: 1 / 1; font-size: clamp(16px, 4vmin, 28px);
+    font-weight: 700; padding: 0; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .numpad button:active { opacity: 0.6; }
+
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+
+  #message { font-size: 0.95rem; font-weight: 600; min-height: 1.4em; color: var(--input-color); text-align: center; }
+
+  /* ローディング */
+  #loading {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); align-items: center; justify-content: center;
+    color: #fff; font-size: 1.1rem; font-weight: 600; z-index: 100;
+  }
+  #loading.show { display: flex; }
+
+  @keyframes flash {
+    0%,100% { background: var(--surface); }
+    50%      { background: #a5d6a7; }
+  }
+  .cell.clear-flash { animation: flash 0.4s ease 3; }
+</style>
+</head>
+<body>
+
+<h1>数独</h1>
+
+<div class="controls">
+  <select id="difficulty">
+    <option value="easy">かんたん</option>
+    <option value="medium" selected>ふつう</option>
+    <option value="hard">むずかしい</option>
+    <option value="expert">エキスパート</option>
+  </select>
+  <button class="primary" onclick="newGame()">新しい問題</button>
+  <span id="timer">0:00</span>
+</div>
+
+<div class="board-wrap">
+  <div class="board" id="board"></div>
+</div>
+
+<div class="numpad" id="numpad"></div>
+
+<div class="actions">
+  <button id="memoBtn" onclick="toggleMemo()">メモ OFF</button>
+  <button onclick="eraseCell()">消す</button>
+  <button onclick="checkBoard()">チェック</button>
+  <button onclick="giveUp()">正解を見る</button>
+</div>
+
+<div id="message"></div>
+<div id="loading">パズル生成中…</div>
+
+<script>
+// =============================================
+// Sudoku Generator (client-side)
+// =============================================
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function isValidPlacement(board, r, c, num) {
+  for (let i = 0; i < 9; i++) {
+    if (board[r][i] === num || board[i][c] === num) return false;
+  }
+  const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+  for (let dr = 0; dr < 3; dr++)
+    for (let dc = 0; dc < 3; dc++)
+      if (board[br + dr][bc + dc] === num) return false;
+  return true;
+}
+
+function getOptions(board, r, c) {
+  const used = new Set();
+  for (let i = 0; i < 9; i++) { used.add(board[r][i]); used.add(board[i][c]); }
+  const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+  for (let dr = 0; dr < 3; dr++)
+    for (let dc = 0; dc < 3; dc++)
+      used.add(board[br + dr][bc + dc]);
+  return [1, 2, 3, 4, 5, 6, 7, 8, 9].filter(n => !used.has(n));
+}
+
+// 完全な盤面をバックトラックで生成
+function fillBoard(board) {
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      if (board[r][c] === 0) {
+        for (const n of shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9])) {
+          if (isValidPlacement(board, r, c, n)) {
+            board[r][c] = n;
+            if (fillBoard(board)) return true;
+            board[r][c] = 0;
+          }
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// MRVヒューリスティックで解答数をカウント（最大2で打ち切り）
+function countSolutions(board) {
+  // 最少候補のセルを探す
+  let minLen = 10, br = -1, bc = -1;
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      if (board[r][c] === 0) {
+        const opts = getOptions(board, r, c);
+        if (opts.length < minLen) {
+          minLen = opts.length; br = r; bc = c;
+          if (minLen === 0) return 0;
+        }
+      }
+    }
+  }
+  if (br === -1) return 1; // 全マス埋まり
+
+  let count = 0;
+  for (const n of getOptions(board, br, bc)) {
+    board[br][bc] = n;
+    count += countSolutions(board);
+    board[br][bc] = 0;
+    if (count >= 2) break;
+  }
+  return count;
+}
+
+// 難易度ごとの除去数
+const REMOVE_COUNT = { easy: 36, medium: 46, hard: 52, expert: 56 };
+
+function generatePuzzle(difficulty) {
+  // 完全盤面を生成
+  const solution = Array.from({ length: 9 }, () => Array(9).fill(0));
+  fillBoard(solution);
+
+  const puzzle = solution.map(r => [...r]);
+  const target = REMOVE_COUNT[difficulty] || 46;
+
+  // ランダム順に除去しつつ唯一解を維持
+  const positions = [];
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      positions.push([r, c]);
+  shuffle(positions);
+
+  let removed = 0;
+  for (const [r, c] of positions) {
+    if (removed >= target) break;
+    const backup = puzzle[r][c];
+    puzzle[r][c] = 0;
+    const tmp = puzzle.map(row => [...row]);
+    if (countSolutions(tmp) === 1) {
+      removed++;
+    } else {
+      puzzle[r][c] = backup;
+    }
+  }
+
+  return { puzzle, solution };
+}
+
+// =============================================
+// ゲーム状態
+// =============================================
+let puzzle    = [];
+let solution  = [];
+let given     = [];
+let userBoard = [];
+let memoBoard = [];
+let selected  = null;
+let memoMode  = false;
+let timerSec  = 0;
+let timerInterval = null;
+let solved    = false;
+
+// =============================================
+// ゲーム開始
+// =============================================
+async function newGame() {
+  const diff = document.getElementById('difficulty').value;
+  setMessage('');
+  document.getElementById('loading').classList.add('show');
+
+  // UIをブロックしないよう少し遅延してから生成
+  await new Promise(r => setTimeout(r, 30));
+  const data = generatePuzzle(diff);
+  document.getElementById('loading').classList.remove('show');
+
+  puzzle    = data.puzzle;
+  solution  = data.solution;
+  given     = puzzle.map(row => row.map(v => v !== 0));
+  userBoard = puzzle.map(row => [...row]);
+  memoBoard = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => new Set()));
+  selected  = null;
+  solved    = false;
+  memoMode  = false;
+  document.getElementById('memoBtn').textContent = 'メモ OFF';
+  document.getElementById('memoBtn').classList.remove('active');
+  stopTimer(); startTimer();
+  renderBoard();
+}
+
+// =============================================
+// タイマー
+// =============================================
+function startTimer() {
+  timerSec = 0; updateTimerDisplay();
+  timerInterval = setInterval(() => { timerSec++; updateTimerDisplay(); }, 1000);
+}
+function stopTimer() { clearInterval(timerInterval); timerInterval = null; }
+function updateTimerDisplay() {
+  const m = Math.floor(timerSec / 60);
+  const s = String(timerSec % 60).padStart(2, '0');
+  document.getElementById('timer').textContent = m + ':' + s;
+}
+
+// =============================================
+// ボード描画
+// =============================================
+function renderBoard() {
+  const boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+  for (let r = 0; r < 9; r++) {
+    const rowEl = document.createElement('div');
+    rowEl.className = 'row';
+    for (let c = 0; c < 9; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r; cell.dataset.c = c;
+
+      if (given[r][c]) {
+        cell.classList.add('given');
+        cell.textContent = userBoard[r][c];
+      } else if (userBoard[r][c] !== 0) {
+        cell.classList.add('input');
+        cell.textContent = userBoard[r][c];
+      } else if (memoBoard[r][c].size > 0) {
+        const grid = document.createElement('div');
+        grid.className = 'memo-grid';
+        for (let n = 1; n <= 9; n++) {
+          const span = document.createElement('span');
+          span.textContent = memoBoard[r][c].has(n) ? n : '';
+          grid.appendChild(span);
+        }
+        cell.appendChild(grid);
+      }
+
+      cell.addEventListener('click', () => selectCell(r, c));
+      rowEl.appendChild(cell);
+    }
+    boardEl.appendChild(rowEl);
+  }
+  updateHighlight();
+}
+
+// =============================================
+// セル選択・ハイライト
+// =============================================
+function selectCell(r, c) {
+  selected = { r, c };
+  updateHighlight();
+}
+
+function updateHighlight() {
+  document.querySelectorAll('.cell').forEach(cell => {
+    cell.classList.remove('selected', 'related', 'same-num');
+    if (!selected) return;
+    const r = +cell.dataset.r, c = +cell.dataset.c;
+    const { r: sr, c: sc } = selected;
+    if (r === sr && c === sc) {
+      cell.classList.add('selected');
+    } else if (
+      r === sr || c === sc ||
+      (Math.floor(r / 3) === Math.floor(sr / 3) && Math.floor(c / 3) === Math.floor(sc / 3))
+    ) {
+      cell.classList.add('related');
+    } else if (userBoard[sr][sc] !== 0 && userBoard[r][c] === userBoard[sr][sc]) {
+      cell.classList.add('same-num');
+    }
+  });
+}
+
+// =============================================
+// 入力・消去
+// =============================================
+function inputNumber(n) {
+  if (!selected || solved) return;
+  const { r, c } = selected;
+  if (given[r][c]) return;
+
+  if (memoMode) {
+    if (memoBoard[r][c].has(n)) memoBoard[r][c].delete(n);
+    else memoBoard[r][c].add(n);
+    userBoard[r][c] = 0;
+  } else {
+    userBoard[r][c] = n;
+    memoBoard[r][c].clear();
+  }
+  renderBoard();
+  selectCell(r, c);
+  checkComplete();
+}
+
+function eraseCell() {
+  if (!selected || solved) return;
+  const { r, c } = selected;
+  if (given[r][c]) return;
+  userBoard[r][c] = 0;
+  memoBoard[r][c].clear();
+  renderBoard();
+  selectCell(r, c);
+}
+
+// =============================================
+// メモモード
+// =============================================
+function toggleMemo() {
+  memoMode = !memoMode;
+  const btn = document.getElementById('memoBtn');
+  btn.textContent = memoMode ? 'メモ ON' : 'メモ OFF';
+  btn.classList.toggle('active', memoMode);
+}
+
+// =============================================
+// チェック
+// =============================================
+function checkBoard() {
+  if (solved) return;
+  const errors = [];
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userBoard[r][c] !== 0 && userBoard[r][c] !== solution[r][c])
+        errors.push([r, c]);
+
+  document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
+  errors.forEach(([r, c]) => {
+    document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`).classList.add('error');
+  });
+
+  if (errors.length === 0) {
+    setMessage('間違いはありません！');
+  } else {
+    setMessage(errors.length + ' か所間違っています');
+    setTimeout(() => {
+      document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
+      setMessage('');
+    }, 2000);
+  }
+}
+
+// =============================================
+// ギブアップ
+// =============================================
+function giveUp() {
+  if (solved) return;
+  if (!confirm('正解を表示しますか？')) return;
+  userBoard = solution.map(r => [...r]);
+  solved = true;
+  stopTimer();
+  renderBoard();
+  setMessage('正解です。次は自力で解いてみましょう！');
+}
+
+// =============================================
+// クリア判定
+// =============================================
+function checkComplete() {
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userBoard[r][c] === 0) return;
+
+  // 全マス正解か確認
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userBoard[r][c] !== solution[r][c]) return;
+
+  solved = true;
+  stopTimer();
+  flashAll();
+  const m = Math.floor(timerSec / 60), s = String(timerSec % 60).padStart(2, '0');
+  setMessage('クリア！ ' + m + ':' + s);
+}
+
+function flashAll() {
+  document.querySelectorAll('.cell').forEach(cell => {
+    cell.classList.add('clear-flash');
+    cell.addEventListener('animationend', () => cell.classList.remove('clear-flash'), { once: true });
+  });
+}
+
+function setMessage(msg) { document.getElementById('message').textContent = msg; }
+
+// =============================================
+// 数字パッド
+// =============================================
+function buildNumpad() {
+  const pad = document.getElementById('numpad');
+  for (let n = 1; n <= 9; n++) {
+    const btn = document.createElement('button');
+    btn.textContent = n;
+    btn.addEventListener('click', () => inputNumber(n));
+    pad.appendChild(btn);
+  }
+}
+
+// =============================================
+// キーボード操作
+// =============================================
+document.addEventListener('keydown', e => {
+  if (!selected) return;
+  if (e.key >= '1' && e.key <= '9') { inputNumber(+e.key); return; }
+  if (e.key === '0' || e.key === 'Backspace' || e.key === 'Delete') { eraseCell(); return; }
+  const moves = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+  if (moves[e.key]) {
+    e.preventDefault();
+    const [dr, dc] = moves[e.key];
+    selectCell(Math.max(0, Math.min(8, selected.r + dr)), Math.max(0, Math.min(8, selected.c + dc)));
+  }
+});
+
+// =============================================
+// PWA Service Worker 登録
+// =============================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+
+// =============================================
+// 初期化
+// =============================================
+buildNumpad();
+newGame();
+</script>
+</body>
+</html>
