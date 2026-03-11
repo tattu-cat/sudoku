@@ -1,17 +1,43 @@
 # トラブルシューティング・知見まとめ
 
-## 数独の生成アルゴリズムについて
+## 数独の生成アルゴリズム（クライアントサイドJS）
 
-### py-sudoku ライブラリの使い方
-```python
-from sudoku import Sudoku
+### 完全盤面の生成
+バックトラック法でランダムな完全盤面を生成する。
 
-# 難易度は 0.0（簡単）〜 1.0（難しい）で指定
-puzzle = Sudoku(3).difficulty(0.5)  # 9×9
-board = puzzle.board  # None が空白マス
+```js
+function fillBoard(board) {
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      if (board[r][c] === 0) {
+        for (const n of shuffle([1,2,3,4,5,6,7,8,9])) {
+          if (isValidPlacement(board, r, c, n)) {
+            board[r][c] = n;
+            if (fillBoard(board)) return true;
+            board[r][c] = 0;
+          }
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
 ```
 
-`None` を `0` に変換してフロントエンドに渡すと扱いやすい。
+### 唯一解の保証（MRVヒューリスティック）
+セルを除去するたびに解答数をカウントし、1のときだけ除去を確定する。
+MRV（Minimum Remaining Values）により、候補が最少のセルから探索するため高速。
+
+```js
+function countSolutions(board) {
+  // 最少候補セルを探す → そこから分岐 → count >= 2 で即打ち切り
+}
+```
+
+### 生成時間について
+難しい難易度（エキスパート）ほど唯一解チェックの試行が増えるため遅くなる。
+「パズル生成中…」のオーバーレイを表示し、`setTimeout(0)` で描画を先に行ってから生成することでUIのブロックを防ぐ。
 
 ---
 
@@ -30,30 +56,19 @@ board = puzzle.board  # None が空白マス
 ### 9×9グリッドをスマホに収める
 ```css
 .board {
-  display: grid;
-  grid-template-columns: repeat(9, 1fr);
-  width: min(95vw, 95vh);  /* 縦横の小さい方に合わせる */
+  width: min(96vw, 96svh, 480px);
   aspect-ratio: 1 / 1;
 }
 ```
+`svh`（Small Viewport Height）を使うとスマホのアドレスバー表示時にも正しく収まる。
 
 ### 3×3ブロックの太い境界線
+行コンテナの `nth-child(3n)` に `border-bottom` を当てる方法がシンプル。
+
 ```css
-.cell:nth-child(3n) { border-right: 2px solid #333; }
-.cell:nth-child(n+19):nth-child(-n+27) { border-bottom: 2px solid #333; }
-/* 行の区切りは行コンテナに border-bottom を使う方がシンプル */
+.row:nth-child(3n) { border-bottom: 2px solid var(--thick-border); }
+.cell:nth-child(3n) { border-right: 2px solid var(--thick-border); }
 ```
-
----
-
-## iPhoneからMacのローカルサーバーにアクセスできない
-
-**チェックリスト（順番に確認）**
-1. Macでサーバーが起動しているか（`.command` を起動済みか）
-2. iPhoneとMacが **同じWiFi** に接続されているか
-3. IPアドレスが正しいか（起動時のコンソールに表示される）
-4. MacのIPアドレス: `ipconfig getifaddr en0` で確認
-5. Macのファイアウォールがブロックしていないか（システム設定 → ネットワーク → ファイアウォール）
 
 ---
 
@@ -70,22 +85,21 @@ board = puzzle.board  # None が空白マス
 
 ---
 
-## api.py のコードを変更した場合はサーバーの再起動が必要
+## Service Workerの更新タイミング
 
-uvicorn は `--reload` フラグなしで起動しているため、コード変更は自動反映されない。
+**症状**
+GitHub Pagesのコードを変更してpushしても、ホーム画面アイコンから起動したアプリにすぐ反映されない。
 
-**再起動方法**
-1. `.command` のターミナルウィンドウを閉じる
-2. 「数独を起動.command」を再度ダブルクリック
+**原因**
+Service Workerはバックグラウンドで更新チェックを行い、次回起動時から新バージョンが有効になる。
+
+**対処方法**
+- 1回アプリを開いて閉じ、再度開くと新しいバージョンが適用される
+- `sw.js` の `CACHE_NAME` のバージョン番号を上げると強制更新できる（例: `sudoku-v1` → `sudoku-v2`）
 
 ---
 
-## household-budget との共存
+## manifest.json のアイコンについて
 
-| アプリ | ポート |
-|--------|--------|
-| household-budget（FastAPI） | 8000 |
-| household-budget（Streamlit） | 8501 |
-| sudoku（FastAPI） | 8001 |
-
-両アプリを同時起動するときはポート衝突しない。
+アイコン画像ファイルを別途用意せず、SVGをdata URI形式でmanifest.jsonに直接埋め込んでいる。
+ただしブラウザによってはdata URIのアイコンを無視する場合があるため、本格運用時はPNGファイルを用意するのが望ましい。
