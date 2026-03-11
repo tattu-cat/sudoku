@@ -104,8 +104,15 @@
     aspect-ratio: 1 / 1; font-size: clamp(16px, 4vmin, 28px);
     font-weight: 700; padding: 0; border-radius: 8px;
     border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0; line-height: 1;
   }
   .numpad button:active { opacity: 0.6; }
+  .numpad button.done { opacity: 0.3; pointer-events: none; }
+  .num-count {
+    font-size: clamp(7px, 1.4vmin, 11px); font-weight: 400;
+    opacity: 0.65; line-height: 1; margin-top: 1px;
+  }
 
   .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 
@@ -344,6 +351,7 @@ function renderBoard() {
         cell.textContent = userBoard[r][c];
       } else if (userBoard[r][c] !== 0) {
         cell.classList.add('input');
+        if (userBoard[r][c] !== solution[r][c]) cell.classList.add('error');
         cell.textContent = userBoard[r][c];
       } else if (memoBoard[r][c].size > 0) {
         const grid = document.createElement('div');
@@ -362,6 +370,7 @@ function renderBoard() {
     boardEl.appendChild(rowEl);
   }
   updateHighlight();
+  updateNumpad();
 }
 
 // =============================================
@@ -443,19 +452,12 @@ function checkBoard() {
       if (userBoard[r][c] !== 0 && userBoard[r][c] !== solution[r][c])
         errors.push([r, c]);
 
-  document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
-  errors.forEach(([r, c]) => {
-    document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`).classList.add('error');
-  });
-
   if (errors.length === 0) {
     setMessage('間違いはありません！');
+    setTimeout(() => setMessage(''), 2000);
   } else {
     setMessage(errors.length + ' か所間違っています');
-    setTimeout(() => {
-      document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
-      setMessage('');
-    }, 2000);
+    setTimeout(() => setMessage(''), 2000);
   }
 }
 
@@ -508,10 +510,32 @@ function buildNumpad() {
   const pad = document.getElementById('numpad');
   for (let n = 1; n <= 9; n++) {
     const btn = document.createElement('button');
-    btn.textContent = n;
+    const digitSpan = document.createElement('span');
+    digitSpan.textContent = n;
+    const countSpan = document.createElement('span');
+    countSpan.className = 'num-count';
+    countSpan.dataset.num = n;
+    btn.appendChild(digitSpan);
+    btn.appendChild(countSpan);
     btn.addEventListener('click', () => inputNumber(n));
     pad.appendChild(btn);
   }
+}
+
+function updateNumpad() {
+  // 各数字の盤面上の個数をカウント
+  const counts = new Array(10).fill(0);
+  for (let r = 0; r < 9; r++)
+    for (let c = 0; c < 9; c++)
+      if (userBoard[r][c] !== 0) counts[userBoard[r][c]]++;
+
+  document.querySelectorAll('.num-count').forEach(span => {
+    const n = +span.dataset.num;
+    const remaining = 9 - counts[n];
+    span.textContent = remaining > 0 ? remaining : '';
+    const btn = span.parentElement;
+    btn.classList.toggle('done', remaining <= 0);
+  });
 }
 
 // =============================================
