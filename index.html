@@ -114,6 +114,17 @@
     opacity: 0.65; line-height: 1; margin-top: 1px;
   }
 
+  .memo-numpad { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; width: min(96vw, 480px); }
+  .memo-numpad button {
+    aspect-ratio: 1 / 1; font-size: clamp(10px, 2.5vmin, 18px);
+    font-weight: 600; padding: 0; border-radius: 6px;
+    border: 1px solid var(--memo-color); background: var(--surface);
+    color: var(--memo-color); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .memo-numpad button:active { opacity: 0.6; }
+  .memo-numpad button.memo-active { background: var(--memo-color); color: #fff; }
+
   .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 
   #message { font-size: 0.95rem; font-weight: 600; min-height: 1.4em; color: var(--input-color); text-align: center; }
@@ -153,9 +164,9 @@
 </div>
 
 <div class="numpad" id="numpad"></div>
+<div class="memo-numpad" id="memo-numpad"></div>
 
 <div class="actions">
-  <button id="memoBtn" onclick="toggleMemo()">メモ OFF</button>
   <button onclick="eraseCell()">消す</button>
   <button onclick="checkBoard()">チェック</button>
   <button onclick="giveUp()">正解を見る</button>
@@ -286,7 +297,6 @@ let given     = [];
 let userBoard = [];
 let memoBoard = [];
 let selected  = null;
-let memoMode  = false;
 let timerSec  = 0;
 let timerInterval = null;
 let solved    = false;
@@ -311,9 +321,6 @@ async function newGame() {
   memoBoard = Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => new Set()));
   selected  = null;
   solved    = false;
-  memoMode  = false;
-  document.getElementById('memoBtn').textContent = 'メモ OFF';
-  document.getElementById('memoBtn').classList.remove('active');
   stopTimer(); startTimer();
   renderBoard();
 }
@@ -371,6 +378,7 @@ function renderBoard() {
   }
   updateHighlight();
   updateNumpad();
+  updateMemoNumpad();
 }
 
 // =============================================
@@ -379,6 +387,7 @@ function renderBoard() {
 function selectCell(r, c) {
   selected = { r, c };
   updateHighlight();
+  updateMemoNumpad();
 }
 
 function updateHighlight() {
@@ -407,18 +416,22 @@ function inputNumber(n) {
   if (!selected || solved) return;
   const { r, c } = selected;
   if (given[r][c]) return;
-
-  if (memoMode) {
-    if (memoBoard[r][c].has(n)) memoBoard[r][c].delete(n);
-    else memoBoard[r][c].add(n);
-    userBoard[r][c] = 0;
-  } else {
-    userBoard[r][c] = n;
-    memoBoard[r][c].clear();
-  }
+  userBoard[r][c] = n;
+  memoBoard[r][c].clear();
   renderBoard();
   selectCell(r, c);
   checkComplete();
+}
+
+function inputMemo(n) {
+  if (!selected || solved) return;
+  const { r, c } = selected;
+  if (given[r][c]) return;
+  if (userBoard[r][c] !== 0) return;
+  if (memoBoard[r][c].has(n)) memoBoard[r][c].delete(n);
+  else memoBoard[r][c].add(n);
+  renderBoard();
+  selectCell(r, c);
 }
 
 function eraseCell() {
@@ -429,16 +442,6 @@ function eraseCell() {
   memoBoard[r][c].clear();
   renderBoard();
   selectCell(r, c);
-}
-
-// =============================================
-// メモモード
-// =============================================
-function toggleMemo() {
-  memoMode = !memoMode;
-  const btn = document.getElementById('memoBtn');
-  btn.textContent = memoMode ? 'メモ ON' : 'メモ OFF';
-  btn.classList.toggle('active', memoMode);
 }
 
 // =============================================
@@ -538,6 +541,25 @@ function updateNumpad() {
   });
 }
 
+function buildMemoNumpad() {
+  const pad = document.getElementById('memo-numpad');
+  for (let n = 1; n <= 9; n++) {
+    const btn = document.createElement('button');
+    btn.textContent = n;
+    btn.dataset.num = n;
+    btn.addEventListener('click', () => inputMemo(n));
+    pad.appendChild(btn);
+  }
+}
+
+function updateMemoNumpad() {
+  document.querySelectorAll('#memo-numpad button').forEach(btn => {
+    const n = +btn.dataset.num;
+    const active = selected && memoBoard[selected.r][selected.c].has(n);
+    btn.classList.toggle('memo-active', !!active);
+  });
+}
+
 // =============================================
 // キーボード操作
 // =============================================
@@ -564,6 +586,7 @@ if ('serviceWorker' in navigator) {
 // 初期化
 // =============================================
 buildNumpad();
+buildMemoNumpad();
 newGame();
 </script>
 </body>
